@@ -1,0 +1,728 @@
+\documentclass{article}
+
+\usepackage{amsmath,amsthm,amsfonts}
+\usepackage{tikz}
+\usetikzlibrary{arrows,matrix}
+\usepackage{hyperref}
+\usepackage[english]{babel}
+
+\newtheorem{ex}{Exercise}
+\newtheorem{prob}[ex]{Problem}
+\newtheorem{defi}{Definition}
+\newtheorem{thm}[defi]{Theorem}
+\newtheorem{rk}[defi]{Remark}
+
+\def\Z{\mathbb{Z}}
+\def\Q{\mathbb{Q}}
+\def\F{\mathbb{F}}
+\def\exp{\mathrm{exp}}
+\def\com{\mathcal{C}}
+\def\Gal{\mathrm{Gal}}
+\def\End{\mathrm{End}}
+\def\Ell{\mathrm{Ell}}
+\def\Cl{\mathrm{Cl}}
+\def\O{\mathcal{O}}
+\newcommand{\ek}{\mathsf{ek}}
+\newcommand{\vk}{\mathsf{vk}}
+\newcommand{\pk}{\mathsf{pk}}
+\newcommand{\id}{\mathsf{id}}
+\newcommand{\idk}{\mathsf{idk}}
+\newcommand{\true}{\mathsf{true}}
+\newcommand{\false}{\mathsf{false}}
+\DeclareMathOperator{\poly}{poly}
+\DeclareMathOperator{\polylog}{polylog}
+\DeclareMathOperator{\Setup}{\mathsf{Setup}}
+\DeclareMathOperator{\Eval}{\mathsf{Eval}}
+\DeclareMathOperator{\Verify}{\mathsf{Verify}}
+\DeclareMathOperator{\Extract}{\mathsf{Extract}}
+\DeclareMathOperator{\Encaps}{\mathsf{Encaps}}
+\DeclareMathOperator{\Decaps}{\mathsf{Decaps}}
+\newcommand{\keyspace}{\mathcal{K}}
+\newcommand{\cipherspace}{\mathcal{C}}
+
+\title{Tools for designing protocols based on isogenies}
+\author{Luca De Feo}
+\date{Isogeny School 2020}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+  Post-quantum isogeny based cryptography starts with key exchange
+  (SIDH, CSIDH), and often ends with it.  Even isogeny based
+  signatures have taken several years to develop, and are often highly
+  technical.  But from such a rich family of assumptions much more is
+  expected than just key exchange or signatures.
+
+  Redesigning from scratch any new primitive is a time-consuming and
+  error-prone task.  It is much easier to abstract away the complexity
+  of a mathematical construction into a framework that lowers entry
+  barriers and simplifies protocol design.  Think about how discrete
+  logarithm groups simplify thinking about elliptic curve
+  cryptography, or of the myriad applications of pairing groups.
+
+  Unfortunately, not all of isogeny based cryptography appears to be
+  amenable to simple and powerful abstractions. These lecture notes
+  are about that part of isogeny based cryptography that is.  We first
+  define the frameworks, staying clear of the technical complications,
+  then we present some protocols constructed with them.
+\end{abstract}
+
+These notes are divided in two parts.  The first part deals with
+\emph{isogenous pairing groups}, a combination of pairing based and
+isogeny based cryptography that leads to interesting \emph{time-delay
+  protocols}.  Alas, the use of pairings make these protocols not
+quantum-safe.
+
+The second part deals with \emph{cryptographic group actions}, i.e.,
+essentially with CSIDH.  We formalize the pitfalls that make building
+upon CSIDH harder than we would like it to be, then we build upon it
+anyway.
+
+Exercises are scattered along the way. Most of them are standard
+exercises the reader may already be familiar with.  We also give some
+problems: these may go from little explored research questions to big
+open questions in the field.
+
+
+\part{Isogenous Pairing Groups}
+
+It all starts with an equation:
+
+\begin{equation}
+  \label{eq:pairing}
+  e_N'\bigl(\phi(P), Q\bigr) = e_N\bigl(P, \hat\phi(Q)\bigr).
+\end{equation}
+%
+Let's dissect it:
+%
+\begin{itemize}
+\item $\phi: E\to E'$ is an isogeny from an elliptic curve $E$ to an
+  elliptic curve $E'$;
+\item $\hat\phi: E'\to E$ is the dual of $\phi$;
+\item $N$ is a positive integer, usually a prime;
+\item $P\in E[N]$ is an $N$-torsion point on the \emph{domain} curve;
+\item $Q\in E'[N]$ is an $N$-torsion point on the \emph{image} curve;
+\item $e_N$ and $e_N'$ are pairings of order $N$ on $E$ and $E'$
+  respectively, usually the Weil pairings of $E$ and $E'$.
+\end{itemize}
+
+That this equation is satisfied for any choice of $\phi,N,P,Q$ and for
+any known elliptic pairing is a remarkable fact, the proof of which is
+out of the scope of these notes.
+See~\cite[\S~III.8]{silverman:elliptic} for the details.  Our goal
+here is to exploit Eq.~\eqref{eq:pairing} to construct new
+cryptographic protocols.
+
+
+\section{Pairings}
+
+We take a step back and recall the basic definitions and properties of
+cryptographic pairings.  If you are already familiar with them, you
+can definitely skip this section.
+
+\begin{defi}
+  A pairing of two groups $G_1,G_2$ is a bilinear map
+  $e:G_1\times G_2\to G_3$, i.e., one such that:
+  \begin{itemize}
+  \item $e(g^a,h) = e(g,h^a) = e(g,h)^a$,
+  \item $e(gg', h) = e(g,h)e(g',h)$,
+  \item $e(g,hh') = e(g,h)e(g,h')$,
+  \end{itemize}
+  for all $a\in\Z$, all $g,g'\in G_1$ and all $h,h'\in G_2$.
+
+  A pairing is said to be \emph{non-degenerate} if:
+  \begin{itemize}
+  \item $e(g,h)=1$ for all $g$ implies $h=1$, and
+  \item $e(g,h)=1$ for all $h$ implies $g=1$.
+  \end{itemize}
+
+  A pairing is said to be \emph{alternating} if $G_1=G_2$ and
+  $e(g,g)=1$ for all $g$.
+\end{defi}
+
+\begin{ex}
+  Let $e$ be alternating, prove that $e(g,h) = e(h,g)^{-1}$.
+\end{ex}
+
+\begin{rk}
+  \label{rk:additive}
+  In the definition above we denoted all three groups $G_1,G_2,G_3$
+  multiplicatively, which is the standard convention in cryptography.
+
+  However, in practice, elliptic pairings have groups of elliptic
+  points for $G_1$ and $G_2$, and a multiplicative subgroup of a
+  finite field for $G_3$.  Thus, textbooks on elliptic curves tend to
+  denote $G_1$ and $G_2$ additively, but $G_3$ multiplicatively, e.g.:
+  $e(P+Q,R) = e(P,R)e(Q,R)$.  I think we can all agree this is
+  extremely confusing to anyone except arithmetic geometers, and we
+  shall thus avoid this devilish notation.
+\end{rk}
+
+For a pairing to be useful in cryptography, it needs to be easy to
+compute, but it also needs some hardness assumptions.  There is a
+plethora of different assumptions in the literature, but we shall
+restrict our attention to only a few:
+\begin{itemize}
+\item The groups $G_1,G_2,G_3$ are (generalized) discrete logarithm
+  groups, in particular they are usually assumed to have prime order;
+\item \emph{Pairing inversion} (see below) is hard.
+\end{itemize}
+
+\begin{defi}[Pairing inversion problem]
+  Let $e:G_1\times G_2 \to G_3$ be a pairing, the \emph{pairing
+    inversion} problem on $G_1$ (resp.\ $G_2$) asks, given $t\in G_3$
+  and $h\in G_2$ (resp.\ $g\in G_1$), to find a $g$ (resp.\ $h$) such
+  that
+  \[e(g,h) = t.\]
+\end{defi}
+
+\begin{ex}
+  \label{ex:inversion}
+  Assume that $G_1,G_2,G_3$ are cyclic.  Prove that pairing inversion
+  is no harder than discrete logarithm (in which group?).
+\end{ex}
+
+\begin{ex}
+  Let $G$ be a cyclic group, and let $e:G\times G\to G_3$ be a
+  non-degenerate pairing, prove that DDH is easy in $G$.
+\end{ex}
+
+
+\section{The Weil pairing}
+
+Elliptic curve subgroups come equipped with a natural pairing.  Let
+$E/k$ be an elliptic curve defined over a field $k$, and let $N$ be a
+positive integer prime to the characteristic of $k$.  We know that the
+torsion subgroup $E[N]$ has rank two, i.e., $E[N]\simeq(\Z/N\Z)^2$.
+The Weil pairing of order $N$ is a non-degenerate alternating pairing
+$e_N:E[N]\times E[N]\to \mu_N$, where $\mu_N\subset\bar{k}$ is the
+subgroup of $N$-th roots of unity of (the algebraic closure of) $k$.
+
+\begin{ex}[warning: multiplicative notation!]
+  Let $\langle P,Q\rangle$ be a basis of $E[N]$, show that
+  \[e_N(P^aQ^b, P^cQ^d) =
+    e_N(P,Q)^{\det\left(\begin{smallmatrix}a&b\\c&d\end{smallmatrix}\right)},\]
+  which is equal to $1$ if and only if the determinant is $0$ (modulo
+  $N$).
+\end{ex}
+
+It is not important here to know how the Weil pairing is computed
+(see, e.g.,~\cite{galbraith2012mathematics}).  Suffice to say that
+there is an efficient algorithm (with running time polynomial in
+$\log(N)$).  Other pairings are also defined for elliptic curves,
+however they are all related to the Weil pairing, and they will not
+make a difference for our purposes, thus we will ignore them.  For a
+review of known elliptic pairings, addressed to non-specialists,
+see~\cite{GALBRAITH20083113}.
+
+Eq.~\eqref{eq:pairing} is the main (the only) result we care about.
+Let's hammer it home.
+
+\begin{thm}
+  Let $E,E'$ be elliptic curves, let $\phi:E\to E'$ be an isogeny,
+  $\hat\phi:E'\to E$ its dual, let $N$ be a positive integer. For any
+  $P\in E[N]$ and $Q\in E'[N]$
+  \begin{equation}
+    \tag{\ref*{eq:pairing}}
+    e_N'\bigl(\phi(P), Q\bigr) = e_N\bigl(P, \hat\phi(Q)\bigr).
+  \end{equation}
+\end{thm}
+
+
+\begin{rk}
+  Eq.~\eqref{eq:pairing} is a generalization of the bilinearity of the
+  Weil pairing.  Indeed, for any integer $a$, the
+  multiplication-by-$a$ map $[a]:E\to E$ is an endomorphism (thus, an
+  isogeny) of $E$, and its dual is $[a]$ itself, thus
+  \[e_N([a]P, Q) = e_N(P, [a]Q).\]
+
+  Since we have opted for the multiplicative notation $P^a$, rather
+  than $[a]P$, it makes sense to also treat isogenies like exponents.
+  At the cost of facing backlash from the whole community, we will
+  from now on rewrite Eq.~\eqref{eq:pairing} as
+  %
+  \begin{equation}
+    \tag{\ref*{eq:pairing}'}
+    \label{eq:pairing-exp}
+    e_N'\bigl(P^\phi, Q\bigr) = e_N\bigl(P, Q^{\hat\phi}\bigr).
+  \end{equation}
+  For clarity, we will always use Greek letters for isogenies and
+  Latin letters for integer exponents.
+\end{rk}
+
+\begin{ex}
+  Let $\phi:E\to E'$ be an isogeny of degree $d$. Prove that, for any
+  $N,P,Q$
+  \[e_N'\bigl(P^\phi,Q^\phi\bigr) = e_N(P,Q)^d.\]
+\end{ex}
+
+
+\section{Pairing-friendly curves}
+
+The Weil pairing is defined for any curve and any $N>0$, however
+constructing curves for which it has the desired cryptographic
+properties is an art.  Concretely, we want to satisfy a few
+constraints:
+%
+\begin{itemize}
+\item The curve must be defined over a finite field $\F_p$;
+\item $N$ must be large and prime;
+\item The torsion points $E[N]$ must be defined over an extension of
+  $\F_p$ of small degree.
+\end{itemize}
+%
+The last constraint is where all the difficulty lies.  There exist a
+few different constructions to achieve it, but we will only care about
+one.
+
+\begin{thm}
+  Let $p>3$ be a prime, let $E$ be a supersingular curve:
+  \begin{itemize}
+  \item defined over $\F_p$, or
+  \item defined over $\F_{p^2}$ such that $\#E(\F_{p^2}) = (p+1)^2$, 
+  \end{itemize}
+  let $N|(p+1)$.  Then $E[N]\subset E(\F_{p^2})$.
+\end{thm}
+
+
+\section{Quantum annoying}
+\label{sec:quantum-annoying}
+
+Eq.~\eqref{eq:pairing} is obviously central to the theory of elliptic
+curves and isogenies, however it is not immediately clear of what use
+it could be in cryptography.  Indeed, while Eq.~\eqref{eq:pairing}
+generalizes bilinearity, it is also more constrained, thus we expect
+to be able to build strictly less protocols than with pairings alone.
+
+However, isogeny problems tend to be quantum-resistant, while pairing
+problems are certainly not (see Exercise~\ref{ex:inversion}).  Mixing
+them cannot possibly lead to a quantum-resistant protocol, however, it
+can at least offer some \emph{partial} security guarantees against
+quantum attackers.  The first to suggest this were Koshiba and
+Takashima~\cite{EPRINT:KosTak16,ICISC:KosTak18}, who introduced the
+name ``Isogenous Paring Groups'' (IPG), and who applied them to
+identity-based and attribute-based encryption with the goal of
+offering security against an adversary with limited access to quantum
+resources.
+
+More recently, the concept of \emph{quantum annoying} has been
+formalized for password-based protocols~\cite{cryptoeprint:2021:696}.
+Intuitively, a password-based protocol (e.g., a Password Authenticated
+Key Exchange, or PAKE) is ``quantum annoying'' if the best strategy
+for an adversary requires computing a new discrete logarithm for each
+password guess. Formalizing quantum annoying-ness is still work in
+progress. Rather than going 100\% formal, here we will just review
+some very basic primitives, which are believed (or is it just me?) to
+be quantum annoying to some extent.
+
+\subsection{PRF}
+
+A cryptographic \emph{pseudorandom function} (PRF) is, roughly
+speaking, function $f:X\to Y$ that is computationally
+indistinguishable from a truly random function.  We are interested in
+a weaker property, called \emph{unpredictability}.
+
+\begin{defi}[wUF]
+  Let $K$, $X$ and $Y$ be finite sets.  A \emph{weakly unpredictable
+    function family} (wUF) is a family of efficiently computable
+  \emph{keyed} functions $\{f_k: X \to Y \;|\; k\in K\}$ such that for
+  any probabilistic polynomial time (PPT) adversary $\mathcal{A}$ has
+  negligible advantage at the following game:
+  \begin{enumerate}
+  \item A random $k\in K$ is drawn uniformly;
+  \item $\mathcal{A}$ can query a randomized oracle $O_k$ that takes
+    no input and outputs uniformly random pairs $(x,f_k(x))$;
+  \item $\mathcal{A}$ requests a challenge and receives a uniformly
+    random $x\in X$, from this moment on $\mathcal{A}$ has no more
+    access to $O_k$;
+  \item $\mathcal{A}$ wins if it outputs $f_k(x)$.
+  \end{enumerate}
+\end{defi}
+
+\begin{ex}
+  \label{ex:prf}
+  Let $G$ be a group. The family
+  $\{f_k : g\mapsto g^k \;|\; 1\le k\le \#G \}$ is a wUF if and only
+  if CDH is hard in $G$.
+\end{ex}
+
+Analogous statements are true for isogenies, however some care must be
+applied in defining the family.
+
+\begin{ex}
+  \label{ex:prf-isog-break}
+  Let $E$ and $E'$ be isogenous curves, let $N$ be an integer.  Let
+  $\phi:E\to E'$ be an isogeny of degree coprime to $N$, let $f_\phi$
+  be the restriction of $\phi$ to $E[N]$.  Propose an algorithm to win
+  the wUF game (i.e., predict the output of $f_\phi$) using a discrete
+  logarithm solver.
+\end{ex}
+
+Although CDH is possibly an easier problem than DLP, note that the
+only known way to solve CDH is to compute one discrete logarithm.
+Thus, if for quantum annoying-ness we are interested in counting the
+number of calls to a DL oracle, the reduction in Exercise~\ref{ex:prf}
+and that in~\ref{ex:prf-isog} cost the same.\footnote{In the generic
+  group model, CDH and DLP are known to be roughly
+  equivalent~\cite{EC:Shoup97,EC:MauWol98}.}
+
+\begin{ex}
+  \label{ex:prf-isog}
+  Let $E$ and $E'$ be isogenous curves, let $N$ be an integer.
+  Describe one or more families of isogenies $f:E\to E'$ such that
+  their restriction to $E[N]$ forms a wUF.
+\end{ex}
+
+In terms of quantum annoying-ness, there is a huge difference between
+the family in Exercise~\ref{ex:prf} and those you may have defined
+in~\ref{ex:prf-isog}.  In the first case, one discrete logarithm is
+enough to recover $k$, then $\mathcal{A}$ can compute as many values
+$f_k(x)$ as they like.  In the second case, it is not clear how to do
+it without computing a discrete logarithm for each new challenge $x$.
+
+\begin{prob}
+  Following~\cite{cryptoeprint:2021:696}, formalize quantum
+  annoying-ness for wUFs, and find families of isogenies that possess
+  the property.
+\end{prob}
+
+
+\subsection{VRF}
+
+A \emph{verifiable random function} (VRF) is, roughly speaking, a wUF
+that is not a PRF.
+
+\begin{defi}[VRF]
+  A \emph{verifiable random function family} (VRF) is a wUF
+  $\{f_k: X\to Y \;|\; k\in K\}$ such that there exists algorithms:
+  \begin{itemize}
+  \item Keygen, taking $k$ as input and outputting a public key $pk$;
+  \item Prove, taking as input $x, k, f_k(x)$ and outputting a proof
+    $\pi$;
+  \item Verify, taking as input $x, y, pk, \pi$ and outputting $1$ if
+    and only if $y=f_k(x)$.
+  \end{itemize}
+\end{defi}
+
+The following example is none else than the building block of the
+celebrated BLS signature scheme~\cite{AC:BonLynSha01}.
+
+\begin{ex}
+  \label{ex:vrf}
+  $e:G_1\times G_2\to G_3$ be a non-degenerate pairing on CDH groups,
+  show that the family
+  $\{f_k : G_1 \to G_1 : g\mapsto g^k \;|\; 1\le k\le \#G_1 \}$ is a
+  VRF.
+\end{ex}
+
+The construction above is easily extended to isogenous pairing groups.
+In~\cite{AC:DMPS19} it is claimed, without a security reduction, that
+such extension is quantum annoying.
+
+\begin{prob}
+  Formalize the notion of quantum annoying-ness for VRFs, and find
+  families of isogenies that possess the property.
+\end{prob}
+
+
+\subsection{(V)OPRF}
+
+An \emph{oblivious PRF} (OPRF) is a protocol that lets two parties
+jointly compute a PRF without revealing secret information to each
+other.
+
+\begin{defi}[OPRF]
+  A PRF $\{f_k: X\to Y \;|\; k\in K\}$ can be computed
+  \emph{obliviously} if there exist a protocol between two parties
+  $\mathcal{S}$ and $\mathcal{C}$ such that:
+  \begin{itemize}
+  \item at the beginning of the protocol, $\mathcal{S}$ knows $k\in K$ and
+    $\mathcal{C}$ knows $x\in X$;
+  \item at the end of the protocol $\mathcal{C}$ learns $f_k(x)$ and
+    $\mathcal{S}$ learns nothing.
+  \end{itemize}
+  No information is revealed to $\mathcal{C}$ and $\mathcal{S}$ other
+  than that learned in the ideal protocol.
+\end{defi}
+
+Let $G$ be a group, let $H_1$ be a hash function with range $G$, and
+let $H_2$ be another hash function.  The family
+$\{f_k : x\mapsto H_2(x,H_1(x)^k) \;|\; 1\le k\le \#G \}$ can be
+computed obliviously thanks to a protocol introduced
+in~\cite{jarecki2016highly}:
+\begin{enumerate}
+\item On input $x$, $\mathcal{C}$ selects a random $r$ and sends
+  $H_1(x)^r$ to $\mathcal{S}$;
+\item Upon receiving $a=H_1(x)^r$ from $\mathcal{C}$, $\mathcal{S}$ sends
+  back $a^k$;
+\item Upon receiving $b = H_1(x)^{rk}$ from $\mathcal{S}$,
+  $\mathcal{C}$ computes $f_k(x) = H_2(x, b^{1/r})$.
+\end{enumerate}
+
+A \emph{verifiable OPRF} (VOPRF) is one with algorithms Keygen, Prove
+and Verify, that let $\mathcal{C}$ verify that $\mathcal{S}$ behaves
+honestly (i.e., does not lead $\mathcal{C}$ to compute $f_{k'}(x)$ for
+some $k'\ne k$).  Note that a VOPRF is not necessarily a VRF, as the
+output $f_k(x)$ needs not be publicly verifiable.
+
+\begin{prob}
+  Define quantum annoying-ness for (V)OPRF, then propose an
+  instantiation using the IPG framework.
+\end{prob}
+
+
+\section{Isogeny walks and sequential computation}
+
+Orthogonally to quantum annoying-ness, rooted deeper in the theory of
+isogeny graphs, IPG have recently attracted more interest thanks to
+the ``sequentiality'' properties of isogeny computations.
+
+Isogeny computations are notoriously slow, but here we're talking
+about another level of slowness.  The goal of \emph{time-delay
+  cryptography} is to design protocols where one party must compute
+for a given amount of \emph{time}, and plausibly no less.
+Mathematically defining time is not really feasible, but a good
+practical approximation is to define a \emph{sequential computation}:
+a sequence of small elementary steps that must be executed in a set
+order, and such that the final result cannot, conjecturally, be
+computed in any other faster way.  This model of secure computation is
+radically different from the usual complexity-theoretic model of
+cryptography, where, for example, the solution space of an NP problem
+can be brute-forced in parallel, rendering moot any attempt at
+lower-bounding \emph{time}.
+
+An example of sequential computation is iterated hashing. Let $H$ be a
+hash function, and define the function
+\[f(x) := H^n(x) = H(H(\cdots(H(x)))).\] Assuming the output of $H$ is
+in some sense ``unpredictable'', we can affirm that computing $f(x)$
+will take no less time than evaluating $n$ times $H$. Then, to lower
+bound \emph{wall time} we can focus on the best possible hardware
+implementation of $H$, not unlike what is currently done with the
+\emph{proof of work} of the most popular cryptocurrencies.
+
+Another example of computation that is conjectured to be sequential is
+\emph{repeated squaring} in groups of unknown order.  Let $G$ be a
+group, define the function
+\[f(x) := x^{2^n}.\] If $N$ is the order of $G$, then
+$x^{2^n} = x^{2^n \mod N}$, and thus the value of $f(x)$ could be
+computed with only $O(\log(N))$ group operations.  However when the
+order $N$ is supposed unknown, no better algorithm is known to compute
+$f(x)$ other than squaring $n$ times.  This function, possessing more
+structure than iterated hashing, has been used to define efficient
+\emph{verifiable delay functions}
+(VDF)~\cite{ITCS:Pietrzak19b,EC:Wesolowski19}, that we shall define in
+the next section.  Note that groups of unknown order (e.g., RSA
+groups) are an intrinsically classical cryptographic construct, as
+Shor's quantum algorithm can compute the order of any group.
+
+Here we are interested in the sequential properties of
+\emph{evaluating isogeny walks}.  Let $\phi$ be an isogeny of degree,
+say, $2^n$. Then, $\phi$ factors as a walk
+\[E_0 \overset{\phi_1}{\longrightarrow} E_1
+  \overset{\phi_2}{\longrightarrow} \cdots
+  \overset{\phi_n}{\longrightarrow} E_n\] of isogenies $\phi_i$ of
+degree $2$.  If we let $N$ be an integer dividing the order of $E_i$,
+we may hope that evaluating the restriction $\phi : E_0[N] \to E_n[N]$
+is a sequential computation requiring no less than $n$ evaluations of
+isogenies of degree $2$.  Since isogenies of degree $2$ can be
+evaluated by a small fixed amount of finite field operations, we may
+focus on designing the best possible hardware realization of
+$2$-isogeny evaluation, and then use $n$ times the latency of that
+hardware as a lower bound.
+
+However, like for repeated squaring, some known structure helps
+simplify computations.  It is indeed possible that for a given isogeny
+walk $\phi:E_0\to E_n$, there exist shorter related isogeny walks
+$\psi:E_0\to E_n$ that let us compute $x^\phi$ in less time.  The
+technical details of when such \emph{shortcuts} exist, and how to
+computed them are presented in~\cite{AC:DMPS19}.  Here we just apply
+the following rules of thumb, that have been developed in the previous
+courses on class group computations and the KLPT algorithm:
+\begin{itemize}
+\item Cycles in an isogeny graph correspond to endomorphisms, walks
+  correspond to ideals in $\End(E)$.
+\item Given enough cycles, we can compute $\End(E)$; given $\End(E)$,
+  we can compute cycles.
+\item Given $\End(E)$ and a walk $E\to E'$, we can compute $\End(E')$;
+  given $\End(E)$ and $\End(E')$, we can compute a walk $E\to E'$.
+\item Given $\End(E)$ and a walk $\phi:E\to E'$, we can compute the
+  corresponding ideal $I\subset\End(E)$; given $\End(E)$ and an ideal
+  $I\subset\End(E)$, we can compute the corresponding walk.
+\item Given $\End(E)$ and an ideal $I\subset\End(E)$, we can compute
+  ideals $J\subset\End(E)$ in the same class as $I$.
+\end{itemize}
+All these rules hold (provided the appropriate bounds on isogeny
+degrees and ideal norms) regardless of whether $\End(E)$ is
+commutative or not.
+
+The moral teaching is that if we know $\End(E_0)$, and if we have a
+walk $\phi:E_0\to E_n$, we can probably compute, if it exists, a
+shorter walk $\psi:E_0\to E_n$.  For the kind of walks $\phi$ we are
+interested in, several millions of steps long, much shorter walks are
+always expected to exist.
+
+The way around this problem is, like in the repeated squaring case, to
+assume that $\End(E_i)$ is unknown.  With the current knowledge, this
+appears to be impossible for ordinary curves\footnote{More precisely,
+  we do not know how to construct ordinary \emph{pairing friendly}
+  curves such that it is hard to compute their endomorphism ring.
+  Pairings are not necessary for sequentiality, but will be needed in
+  the next section.}, but for supersingular curves the difficulty of
+computing endomorphism rings is a standard assumption, underpinning
+all of isogeny based cryptography.
+
+Finding \emph{shortcuts} is not the only way to beat sequentiality.
+The following exercise shows that sequentiality of isogeny walk
+evaluations cannot hold in a quantum world.
+
+\begin{ex}
+  Let $\phi:E_0\to E_n$ be an isogeny walk, let $N\ll 2^n$ be an
+  integer.  Given $g\in E_0[N]$ and $g^\phi$, and given access to a
+  DLP oracle, explain how to compute $h^\phi$ for a random
+  $h\in E_0[N]$ in only $O(\log(N))$ steps.
+\end{ex}
+
+Despite the ``easy patch'' to prevent the computation of
+\emph{shortcuts}, assuming $\End(E)$ is unknown is easier said than
+done.  We conclude with one of the most fascinating open problems in
+isogeny based cryptography, and we refer
+to~\cite{AC:DMPS19,EPRINT:BurDeF20} for more details.
+
+\begin{prob}
+  Find an algorithm that samples a random supersingular curve $E$, and
+  such that computing $\End(E)$ is difficult even when given access to
+  the internal state of the algorithm.
+\end{prob}
+
+
+\section{Delay protocols}
+
+Sequentiality alone is not very useful.  In time-delay cryptography we
+seek to build protocols where one party needs to go through the slow
+sequential computation, while the other parties only have efficient
+computations.  Such protocols roughly fall within two categories:
+\begin{itemize}
+\item Protocols akin to signatures, where the goal is to
+  \emph{efficiently verify} that one party honestly performed the slow
+  sequential computation;
+\item Protocols akin to encryption, where the goal is to
+  \emph{efficiently encrypt} a message that will take a long
+  sequential computation to decrypt.
+\end{itemize}
+To the first category belong \emph{proofs of work} (PoW) and
+\emph{verifiable delay functions} (VDF)~\cite{C:BBBF18}.  To the
+second belong \emph{time-lock puzzles} (TLP)~\cite{TLP} and
+\emph{delay encryption} (DE)~\cite{EPRINT:BurDeF20}.
+
+A crucial difference between the protocols presented in
+Section~\ref{sec:quantum-annoying} and delay protocols is that the
+latter have no secrets.  This slightly simplifies security
+definitions, but brings in the burden of unknown structure assumptions
+mentioned in the previous section.
+
+A VDF is, roughly speaking, a VRF with slow evaluation.  It is a
+special instance of PoW, where an input uniquely determines the
+output.
+
+\begin{defi}[VDF]
+  A \emph{verifiable delay function} (VDF) consists of three algorithms:
+  \begin{description}
+  \item[ $\Setup(\lambda, T)\,\to\,(\ek,\vk)$.] is a procedure that
+    takes a security parameter $\lambda$, a delay parameter $T$, and
+    outputs public parameters consisting of an evaluation key $\ek$
+    and a verification key $\vk$.
+  \item[ $\Eval(\ek, s)\,\to\,(a,\pi)$.] is a procedure to evaluate the
+    function on input $s$. It produces the output $a$ from $s$, and a
+    (possibly empty) proof $\pi$. This procedure is meant to be
+    infeasible in time less than $T$.
+  \item[ $\Verify(\vk,s,a,\pi)\,\to\,\{\true,\false\}$.] is a procedure
+    to verify that $a$ is indeed the correct output for $s$, with the
+    help of the proof $\pi$.
+  \end{description}
+\end{defi}
+
+A VDF shall satisfy three security properties: \emph{Correcteness},
+stating that a honest evaluator always passes verification,
+\emph{Soundness}, stating that a lying evaluator never passes
+verification, and \emph{Sequentiality}, stating that it is impossible
+to correctly evaluate the VDF in time less than $T-o(T)$, even when
+using $\poly(T)$ parallel processors.
+
+\begin{ex}
+  Drawing inspiration from the VRF of Exercise~\ref{ex:vrf}, design an
+  isogeny based VDF.
+\end{ex}
+
+Delay encryption is related to identity based
+encryption~\cite{C:BonFra01}.  Rather then encrypting to an identity,
+parties encrypt to an ephemeral \emph{session}.  Once a session is
+started, participants can start \emph{extracting} the session
+decryption key, a slow sequential operation.  After extraction is
+completed, anyone in possession of the session key can decrypt all
+messages encrypted to the session.
+
+\begin{defi}[DE]
+  A \emph{delay encryption} scheme consists of four algorithms:
+  \begin{description}
+  \item[$\Setup(\lambda, T) \to (\ek,\pk)$.] %
+    Takes a \emph{security parameter} $\lambda$, a \emph{delay
+      parameter} $T$, and produces public parameters consisting of an
+    \emph{extraction key} $\ek$ and an \emph{encryption key} $\pk$. %
+    $\Setup$ must run in time $\poly(\lambda,T)$; the encryption key
+    $\pk$ must have size $\poly(\lambda)$, but the evaluation key $\ek$
+    is allowed to have size $\poly(\lambda,T)$.
+  \item[$\Extract(\ek,\id) \to \idk$.] %
+    Takes the extraction key $\ek$ and a \emph{session identifier}
+    $\id\in\{0,1\}^*$, and outputs a \emph{session key} $\idk$. %
+    $\Extract$ is expected to run in time \emph{exactly} $T$.
+  \item[$\Encaps(\pk,\id)\to (c,k)$.] %
+    Takes the encryption key $\pk$ and a \emph{session identifier}
+    $\id\in\{0,1\}^*$, and outputs a \emph{ciphertext}
+    $c\in\cipherspace$ and a \emph{key} $k\in\keyspace$. %
+    $\Encaps$ must run in time $\poly(\lambda)$.
+  \item[$\Decaps(\pk,\id,\idk,c)\to k$.] %
+    Takes the encryption key $\pk$, a \emph{session identifier}
+    $\id$, a \emph{session key} $\idk$, a ciphertext $c\in\cipherspace$,
+    and outputs a key $k\in\keyspace$. %
+    $\Decaps$ must run in time $\poly(\lambda)$.
+  \end{description}
+\end{defi}
+
+When $\Encaps$ and $\Decaps$ are combined with a symmetric encryption
+scheme keyed by $k$, they become the encryption and decryption
+routines of a hybrid encryption scheme.
+
+A Delay Encryption scheme is correct if for any
+$(\ek,\pk)=\Setup(\lambda,T)$ and any $\id$
+\[\idk=\Extract(\ek,\id)
+  \;\wedge\;
+  (c,k) = \Encaps(\pk,\id)
+  \;\Rightarrow\;
+  \Decaps(\pk,\id,\idk,c) = k.\]
+The security of Delay Encryption is defined similarly to that of
+public key encryption schemes, and in particular of identity-based
+ones; however one additional property is required of $\Extract$: that
+for a randomly selected identifier $\id$, the probability that any
+algorithm outputs $\idk$ in time less than $T$ is negligible. %
+
+
+\begin{ex}(hard?)
+  Define a DE scheme using the IPG framework.
+\end{ex}
+
+I am unsure how hard this exercise is.  If you are stuck, check
+out~\cite[\S~3]{EPRINT:BurDeF20}.  One notable fact about DE is that this
+isogeny based construction is the \emph{only known instantiation} of
+DE.
+
+
+\part{Cryptographic Group Actions}
+
+coming soon\dots
+
+\bibliographystyle{plainurl}
+\bibliography{local,export/abbrev3,export/crypto,isogenies_bib/isogenies}
+
+\end{document}
