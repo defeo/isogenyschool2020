@@ -428,6 +428,7 @@ such extension is quantum annoying.
 
 
 \subsection{(V)OPRF}
+\label{sec:voprf}
 
 An \emph{oblivious PRF} (OPRF) is a protocol that lets two parties
 jointly compute a PRF without revealing secret information to each
@@ -523,14 +524,13 @@ say, $2^n$. Then, $\phi$ factors as a walk
 \[E_0 \overset{\phi_1}{\longrightarrow} E_1
   \overset{\phi_2}{\longrightarrow} \cdots
   \overset{\phi_n}{\longrightarrow} E_n\] of isogenies $\phi_i$ of
-degree $2$.  If we let $N$ be an integer dividing the order of $E_i$,
-we may hope that evaluating the restriction $\phi : E_0[N] \to E_n[N]$
-is a sequential computation requiring no less than $n$ evaluations of
-isogenies of degree $2$.  Since isogenies of degree $2$ can be
-evaluated by a small fixed amount of finite field operations, we may
-focus on designing the best possible hardware realization of
-$2$-isogeny evaluation, and then use $n$ times the latency of that
-hardware as a lower bound.
+degree $2$.  If we fix an integer $N$, we may hope that evaluating the
+restriction $\phi : E_0[N] \to E_n[N]$ is a sequential computation
+requiring no less than $n$ evaluations of isogenies of degree $2$.
+Since isogenies of degree $2$ can be evaluated by a small fixed amount
+of finite field operations, we may focus on designing the best
+possible hardware realization of $2$-isogeny evaluation, and then use
+$n$ times the latency of that hardware as a lower bound.
 
 However, like for repeated squaring, some known structure helps
 simplify computations.  It is indeed possible that for a given isogeny
@@ -591,6 +591,7 @@ isogeny based cryptography, and we refer
 to~\cite{AC:DMPS19,EPRINT:BurDeF20} for more details.
 
 \begin{prob}
+  \label{prob:hash}
   Find an algorithm that samples a random supersingular curve $E$, and
   such that computing $\End(E)$ is difficult even when given access to
   the internal state of the algorithm.
@@ -720,7 +721,564 @@ DE.
 
 \part{Cryptographic Group Actions}
 
-coming soon\dots
+Also known as \emph{hard homogeneous
+  spaces}~\cite{EPRINT:Couveignes06}, cryptographic group actions are
+a generalization of discrete logarithm groups that potentially offer
+resistance to quantum attacks.  Currently, the most popular
+post-quantum group action is undoubtedly CSIDH~\cite{AC:CLMPR18}, but
+the concept goes back to Couveignes' and Rostovtsev and Stolbunov's
+key exchange scheme based on the group action of complex
+multiplication on ordinary elliptic
+curves~\cite{EPRINT:Couveignes06,EPRINT:RosSto06}.  Even earlier,
+group actions were studied in the context of cryptography by Brassard
+and Yung~\cite{C:BraYun90}.
+
+Like discrete logarithm groups, group actions offer a simple but
+powerful abstraction, from which we may derive many different
+primitives. Like with any abstraction, though, there is a risk of
+loosing sight of the actual mathematical object, and defining a
+protocol that cannot be instantiated or, worse, is insecure.
+
+In this part, we describe cryptographic group actions using the
+formalism of~\cite{AC:ADMP20}.  This framework, more detailed than the
+early attempt of~\cite{EPRINT:Couveignes06}, closely models the actual
+properties of CSIDH and its derivatives.
+
+
+\section{Effective group actions}
+
+\begin{defi}[Group Action]
+  Let $G$ be a group with identity element $1$, and let $X$ be a
+  set. %
+  A map $\star : G \times X \to X$ is called an \emph{action of $G$ on
+    $X$} if:
+  \begin{itemize}
+  \item $1 \star x = x$ for any $x\in X$, and
+  \item $(g h) \star x=g \star (h \star x)$ for any $g,h\in G$ and any
+    $x\in X$.
+  \end{itemize}
+  
+  A group action $(G,X,\star)$ is called \emph{transitive} if for
+  every $x_1,x_2\in X$, there exists $g\in G$ such that
+  $x_2 = g \star x_1$. %
+  It is called \emph{free} if for every $g\in G$, whenever there is
+  some $x\in X$ such that $x = g \star x$, then $g=1$. %
+  A \emph{regular} group action is one that is transitive and free.
+\end{defi}
+
+\begin{ex}
+  Let $(G,X,\star)$ be a group action.  Prove that for any $g\in G$
+  the map $\pi_g:x\mapsto g\star x$ is a permutation of $X$.
+\end{ex}
+
+\begin{ex}
+  Let $(G,X,\star)$ be a regular group action.  Prove that for any
+  $x\in X$ the map $f_x:g\mapsto g \star x$ defines a bijection
+  between $G$ and $X$.
+\end{ex}
+
+In particular, for a regular group action, if $G$ (or $X$) is finite
+then we must have $\#G= \#X$.  One informal way to think of $X$ in
+this case is like a copy of $G$ where we forget which element is the
+group identity.  From this point on, whenever we mention a group
+action this will be implicitly assumed to be \textbf{regular, finite
+  and abelian}.
+
+For a group action to be useful in cryptography, some operations must
+be easily computable.
+
+\begin{defi}[Effective group action --- EGA]
+  A group action $(G,X,\star )$ is \emph{effective} if the following
+  properties are satisfied:
+  \begin{enumerate}
+  \item The group $G$ is finite and there exist efficient algorithms
+    for:
+    \begin{enumerate}
+    \item \emph{Membership testing}, i.e., to decide if a given bit string
+      represents a valid group element in $G$.
+    \item \emph{Equality testing}, i.e., to decide if two bit strings
+      represent the same group element in $G$.
+    \item \emph{Sampling}, i.e., to sample an element $g$ from a
+      distribution on $G$ statistically close to uniform.
+    \item \emph{Operation}, i.e., to compute $gh$ for any $g,h\in G$.
+    \item \emph{Inversion}, i.e., to compute $g^{-1}$ for any
+      $g\in G$.
+    \end{enumerate}
+  \item The set $X$ is finite and there exist efficient algorithms for:
+    \begin{enumerate}
+    \item \emph{Membership testing}, i.e., to decide if a bit string
+      represents a valid set element.
+    \item \emph{Unique representation}, i.e., given any arbitrary set element $x\in X$, compute a string $\hat{x}$ that canonically represents $x$.
+    \end{enumerate}
+  \item There exists a distinguished element $x_0\in X$, called the
+    \emph{origin}, such that its bit-string representation is
+    known.
+  \item There exists an efficient algorithm that given (some
+    bit-string representations of) any $g\in G$ and any $x\in X$,
+    outputs $g \star x$.
+  \end{enumerate}
+\end{defi}
+
+A cryptographic group action also needs to have some hard
+problems. Recall that a family of efficiently computable functions
+$f_k:X\to Y$ is \emph{one way} if computing $f_k^{-1}$ is hard.
+
+\begin{defi}
+  Let $(G,X, \star )$ be an EGA.  Define the functions
+  \begin{equation*}
+    \begin{aligned}
+      f_x : G &\to X,\\
+      g &\mapsto g\star x,
+    \end{aligned}
+    \qquad\qquad
+    \begin{aligned}
+      \pi_g : X &\to X,\\
+      x &\mapsto g\star x.
+    \end{aligned}
+  \end{equation*}
+  The group action is said to be:
+  \begin{enumerate}
+  \item \emph{One-way} if the family of functions $f_x$ is one-way.
+  \item \emph{Weakly unpredictable} if the family of permutations
+    $\pi_g$ is weakly unpredictable, i.e., if given a list of random
+    pairs $(x,\pi_g(x))$ it is hard to guess $\pi_g(x^*)$ for a random
+    $x^*$ not in the list.
+  \item \emph{Weakly pseudorandom} if the family of permutations
+    $\pi_g$ is weakly pseudorandom, i.e., if it is hard to distinguish
+    between a list of random pairs $(x,\pi_g(x))$ and one of random
+    pairs $(x,\pi(x))$, where $\pi$ is a uniformly drawn permutation
+    of $X$.
+  \end{enumerate}
+\end{defi}
+
+\begin{ex}
+  Let $G$ be an effective group of order $p$.  Define an effective
+  group action on $G$ so that one-wayness is equivalent to DLP.  What
+  are unpredictability and pseudorandomness equivalent to?
+\end{ex}
+
+\begin{ex}
+  \label{ex:dh}
+  Instantiate key exchange and public key encryption from an EGA.
+  What assumption can the security of these primitives be based on?
+\end{ex}
+
+
+\section{Restricted effective group actions}
+
+It may come as a surprise that no \emph{strictu sensu} post-quantum
+EGA is currently known.  The group action of complex multiplication
+used in CSIDH and related protocols comes close to a pq-EGA, however
+it fails to satisfy the last axiom: efficiently evaluating $g\star x$
+for \emph{any} $g\in G$.
+
+For this reason we introduce a restricted version of EGA, which
+closely models the algorithmic properties of isogeny group actions.
+The hardness assumptions will stay unchanged.
+
+\begin{defi}[Restricted effective group action --- REGA]
+  Let $(G,X,\star )$ be a group action and let $\vec{g} =(g_1,\ldots,g_n)$
+  be a (not necessarily minimal) generating set for $G$.  The action
+  is said to be \emph{$\vec{g}$-restricted effective}, if the
+  following properties are satisfied:
+  \begin{enumerate}
+  \item $G$ is finite and $n = \polylog(\# G)$.
+  \item The set $X$ is finite and there exist efficient algorithms
+    for: \emph{Membership testing}, i.e., to decide if a bit string
+    represents a valid set element; and \emph{Unique representation},
+    i.e., to compute a string $\hat{x}$ that canonically represents
+    any given set element $x\in X$.
+  \item There exists a distinguished element $x_0\in X$, called the
+    \emph{origin}, such that its bit-string representation is known.
+  \item There exists an efficient algorithm that given any
+    $1\le i\le n$ and any bit string representation of $x\in X$,
+    outputs $g_i\star x$ and $g_i^{-1}\star x$.
+  \end{enumerate}
+\end{defi}
+
+In the last axiom, we see how REGAs differ from EGAs: in this case,
+there is only a short list of group elements $g_i$ for which we can
+efficiently compute $g_i\star x$.  This corresponds well to the case
+of complex multiplication, where we can only efficiently compute the
+action of low norm ideals (see lecture notes of previous weeks).
+
+Despite this limitation, we can still evaluate in polynomial time the
+action of exponentially many elements of $G$.  Indeed, the action of
+any polynomially sized linear combination $\prod_{i=1}^n g_i^{e_i}$
+can be evaluated in $\sum_{i=1}^n |e_i|$ steps by successively
+computing the action of each component.  For example, restricting
+exponents to a box $e_i\in [-r,r]$, the action of as many as
+$(2r+1)^n$ distinct elements of $G$ can be computed.  This is
+precisely how the group action is evaluated in CSIDH.
+
+\begin{rk}
+  \label{rk:lattice}
+  Abstractly, a REGA can be viewed as a group action of $\Z^n$ on $X$,
+  given by
+  \begin{equation*}
+    (e_1,\ldots,e_n)\star x := \bigl(\prod g_i^{e_i}\bigr)\star x,
+  \end{equation*}
+  where the cost of evaluating the action depends on the norm of the
+  vectors in $\Z^n$.
+
+  The action is not free, however there exists a subgroup
+  $\Lambda\subset\Z^n$, called the \emph{relation lattice} of
+  $(g_1,\ldots,g_n)$, such that $\vec{e}\star x = x$ if and only if
+  $\vec{e}\in\Lambda$.  Then the induced action by $\Z^n/\Lambda$ is
+  regular.
+\end{rk}
+
+\begin{ex}
+  Recast the key exchange and public key encryption protocols of
+  Exercice~\ref{ex:dh} in the context of REGAs.  Is security affected?
+\end{ex}
+
+Although we explained how to efficiently evaluate the action of
+exponentially many elements of $G$, possibly all of them, we still do
+not have an EGA.  Indeed the representation of elements of $G$ as
+products $\prod_{i=1}^n g_i^{e_i}$ is not unique, and not all such
+representations can be efficiently evaluated: as soon as the vector of
+exponents $\vec{e}$ has super-polynomial norm, we fail to satisfy the
+axioms of EGAs.
+
+Nevertheless, a REGA can be turned into a \emph{pretty good}
+approximation of an EGA\footnote{By ``pretty good'' we mean that this
+  is still not an EGA in the asymptotic sense of complexity theory,
+  but may behave like one in practice.} through a pre-computation of
+the relation lattice.  This is the main idea behind the CSI-FiSh
+signature scheme~\cite{AC:BeuKleVer19}.  The details of the
+construction are out of the scope of these notes, but have been
+discussed in Ward Beullens' lecture notes~\cite{ward-ln}.  Note that,
+without this pre-computation, signatures purely based on REGAs are
+much less efficient~\cite{EC:DeFGal19,PQCRYPTO:DecPanVer19}.
+
+
+\section{Oblivious transfer}
+
+\emph{Oblivious transfer} (OT) is possibly the simplest ``advanced''
+primitive one may design from (R)EGA.  It is one of foundational
+primitives of secure multi-party computation, and a building block for
+several advanced protocols.  There are many variants of OT, but they
+all aim at realizing roughly the same functionality: a \emph{sender}
+$\mathcal{S}$ possesses two \emph{messages} $m_0,m_1$, and a
+\emph{receiver} $\mathcal{R}$ wishes to learn only one of them,
+without the sender knowing which.
+
+Several protocols for OT are known from discrete logarithm group, and
+some of them may be adapted to the (R)EGA setting.  One of the
+simplest such protocols, in the authors' own words, is the
+Chou--Orlandi scheme~\cite{LC:ChoOrl15}.  It is a 3-message protocol
+inspired by the DH key exchange.  Given a group $G=\langle g\rangle$
+of order $p$, a hash function $H$ and an encryption scheme $(E_k,D_k)$
+(where $E_k(m)$ means ``encrypt $m$ under key $k$'' and $D_k(c)$ means
+``decrypt $c$''), it proceeds as follows:
+
+\begin{enumerate}
+\item $\mathcal{S}$ generates a secret $1\le s\le p$, sends $A = g^s$
+  to $\mathcal{R}$.
+\item Let $\beta\in\{0,1\}$ be a bit indicating the message $m_\beta$
+  that $\mathcal{R}$ wishes to learn; $\mathcal{R}$ generates a secret
+  $1\le r\le p$ and sends $B = A^\beta g^r$ to $\mathcal{S}$.
+\item $\mathcal{S}$ derives two keys:
+  \begin{itemize}
+  \item $k_0 = H(B^s)$, and
+  \item $k_1 = H((B/A)^s)$;
+  \end{itemize}
+  it sends $c_0 := E_{k_0}(m_0)$ and $c_1 := E_{k_1}(m_1)$ to
+  $\mathcal{R}$.
+\item $\mathcal{R}$ computes $k_\beta = H(A^r)$ and recovers
+  $m_\beta = D_{k_\beta}(c_\beta)$.
+\end{enumerate}
+
+\begin{ex}
+  Prove that the Chou--Orlandi scheme is correct, i.e., that
+  $\mathcal{R}$ learns $m_i$ at the end of the protocol.
+\end{ex}
+
+As described, this OT protocol is only secure against semi-honest
+adversaries, i.e., \emph{curious} adversaries who follow the protocol,
+but want to learn information they are not supposed to learn ($\beta$
+in the case of $\mathcal{S}$, or $m_{1-\beta}$ in the case of
+$\mathcal{R}$).
+
+\begin{ex}
+  Show that the Chou--Orlandi protocol is statistically secure against
+  curious $\mathcal{S}$.  What security assumptions are needed to
+  prove security against curious $\mathcal{R}$?
+\end{ex}
+
+\begin{ex}
+  Propose a modification of the Chou--Orlandi protocol that works for
+  (R)EGA.  \emph{Hint: start by modifying the protocol to use only
+    exponentiation and no multiplication (unlike in steps 2 and 3).}
+\end{ex}
+
+If you are stuck with the last exercise, check
+out~\cite[Fig.~2]{EPRINT:LaiGaldeS20}.  As it turns out, this protocol
+is not secure in the CSIDH setting without using a trusted setup
+(i.e., a trusted third party generates the system parameters and does
+not try to learn any secrets afterwards).  This is because the CSIDH
+group action enjoys one special property that is not captured by the
+axioms of (R)EGA.
+
+\begin{thm}[A \emph{twisted} symmetry in CSIDH]
+  In the CSIDH group action, there exists a special element $x_0\in X$
+  such that given only $g\star x_0$ the element $g^{-1}\star x_0$ can
+  be computed efficiently.
+\end{thm}
+
+\begin{ex}
+  Let $x\in X$ be the origin element (playing the same role as the
+  generator $g$) in the modified Chou--Orlandi protocol.  Explain how
+  $\mathcal{R}$ can cheat if it knows $t$ such that $x = t\star x_0$,
+  where $x_0$ is the special element above.
+\end{ex}
+
+As far as we know, this is the only algebraic property that sets CSIDH
+apart from a generic REGA.  Remarkably, this property can be used to
+reduce the number of messages in the modified Chou--Orlandi protocol
+from 3 to 2.  See~\cite[Fig.~2]{EPRINT:LaiGaldeS20}.
+
+Other OT protocols based on isogenies have been proposed
+in~\cite{EPRINT:BarOliBen18,AFRICACRYPT:Vitse19,CANS:dOPS20,AC:ADMP20}.
+
+
+\section{OPRF}
+
+We saw that the function $f_k: g\mapsto g^k$ is a wUF if CDH is hard,
+and it is in fact also weakly pseudorandom if DDH is hard.  However
+$f_k$ is only a wPRF, because it is a group homomorphism: knowing
+$(x,f_k(x))$, and being allowed to query $f_k$ on $x^a$, it is easy to
+distinguish $f_k$ from a random function by checking that
+$f(x^a) = f(x)^a$.
+
+To break the homomorphism, we can introduce a hash function as we did
+in Section~\ref{sec:voprf}: the function
+\[f_k : x \mapsto H_2(x, H_1(x)^k),\] where $H_1$ is a hash function
+with range $G$, is a PRF, assuming DDH is hard and $H_1$ and $H_2$ are
+modeled as random oracles.  There is nothing spectacular about a PRF
+in the ROM, however what's more interesting is that this PRF supports
+the oblivious evaluation protocol we described in
+Section~\ref{sec:voprf}.
+
+It is tempting to try and replicate the construction with a (R)EGA.
+We know by hypothesis that $\pi_g : x\mapsto g\star x$ is a wPRF.  To
+define a PRF, the first step would be to define a hash function
+$H_1:\{0,1\}^*\to X$, and rather one that behaves like a random
+oracle.  The existence of such a function is not postulated by (R)EGA,
+so it has to be seen whether a specific instantiation supports
+it.\footnote{The existence of a random oracle with range in a DL group
+  is not supported by the axioms of DL groups either, but it turns out
+  that for most DL groups (e.g., elliptic curves) such functions
+  exist.}  We are out of luck, here: finding such a hash function is a
+major open problem for isogeny based cryptography, that is essentially
+equivalent to Problem~\ref{prob:hash}.
+
+A celebrated way to construct PRFs from the DDH assumption alone is
+due to Naor and Reingold~\cite{FOCS:NaoRei97}.  If
+$G=\langle g\rangle$ is a group of order $p$, the key space is defined
+as $(\Z/p\Z)^{n+1}$, and the input space as $\{0,1\}^n$, for some
+security parameter $n$.  The function family is then defined as
+\[f_{k_0,k_1,\dots,k_n} : (b_1,\dots,b_n) \mapsto g^{k_0\prod_{i=1}^n k_i^{b_i}}.\] 
+
+\begin{ex}
+  Give an analogue of the Naor--Reingold PRF based on EGA.  Do you
+  notice any difference if instead we based it on a REGA?
+\end{ex}
+
+If in the previous weeks you were fascinated by the isogeny graphs and
+complex multiplication, the following exercise should appeal to you.
+
+\begin{ex}
+  Explain the Naor--Reingold PRF in terms of walks in a Cayley graph.
+  Use this explanation to justify pseudorandomness.
+\end{ex}
+
+Variants of the Naor--Reingold PRF based on group actions were
+simultaneously introduced
+in~\cite{AC:ADMP20,AC:BonKogWoo20,AC:MorOnuTak20}.  It
+was~\cite{AC:BonKogWoo20} that introduced an oblivious evaluation
+protocol for it, using OT as a subroutine. The protocol is amazingly
+simple. Let $\mathcal{S}$ be the server holding the key
+$(k_0,\dots,k_{n})$, and let $\mathcal{C}$ be the client wanting to
+evaluate $f_k$ at $(b_1,\dots,b_n)$.
+
+\begin{enumerate}
+\item $\mathcal{S}$ chooses a random $r_i\in G$ for each
+  $1\le i \le n$.
+\item For each $i$, client and server engage in an OT protocol to
+  transfer the value $m_i = k_i^{b_i}r_i$ to $\mathcal{C}$.
+\item $\mathcal{S}$ computes
+  $x' = (k_0\prod_{i=1}^n r_i^{-1})\star x_0$ and sends it to
+  $\mathcal{C}$.
+\item $\mathcal{C}$ computes $(\prod_{i=1}^n m_i) \star s'$ to obtain
+  the output value.
+\end{enumerate}
+
+\begin{ex}
+  Prove that the OPRF protocol above is correct.  Sketch the proof of
+  security.
+\end{ex}
+
+
+\section{Secret sharing ``in the exponents''}
+
+\emph{Secret sharing} is a technique to decompose a secret $s$ into
+$n$ \emph{shares} $s_i$ such that the value $s$ can only be recovered
+by assembling together some of the shares.  The simplest such scheme
+is \emph{linear secret sharing}, where $s$ is simply decomposed as
+\[s = s_1 + s_2 + \cdots + s_n\] for $s_i$ uniformly sampled in some
+additive group (e.g., $\Z_2^\lambda$, or $\Z/p\Z$).  It is clear that
+all shares $s_i$ are necessary to recover $s$.
+
+A more advanced scheme is \emph{Shamir's threshold secret
+  sharing}~\cite{Shamir79}, which uses polynomial interpolation in a
+finite field to break $s$ into $n$ shares, such that any $k \le n$ of
+them can be used to reconstruct $s$.  The idea is to sample a random
+polynomial $f(X)$ of degree $k-1$ with coefficients in $\F_p$, and to
+define $s=f(0)$ and $s_i = f(i)$.
+
+\begin{ex}
+  Give an algorithm to compute $s$ from $k$ shares $s_i$ ``without
+  recomputing'' all of $f(X)$.
+\end{ex}
+
+A common goal in multi-party computation is to compute the output of
+some cryptographic algorithm (e.g., decryption, signing, etc.), where
+the secrets have been shared.  Ideally, the participants to the
+protocol would only learn the output (e.g., the plaintext), but
+nothing else (including the shared secret).  An important technique
+that applies to DL protocols is ``Shamir's secret sharing in the
+exponents'', introduced by Desmedt and Frankel~\cite{C:DesFra89}.
+
+For simplicity, let's start from the case of decrypting ElGamal
+ciphertexts with linearly shared secrets.  Let $G=\langle g\rangle$ be
+a group of order $p$, let $1\le s\le p$ be a secret key and let $g^s$
+be the associated public key.  Decompose the secret $s$ as
+\[s = s_1 + \cdots + s_n\] and distribute the $s_i$ to $n$
+participants, numbered from $1$ to $n$.  Let
+$C = (C_1, C_2) = (g^r, g^{sr} \cdot m)$ be an ElGamal ciphertext, the
+goal is for the participants to compute $m$ without anyone learning
+$s$.  The protocol proceeds as follows:
+\begin{enumerate}
+\item Each participant broadcasts $C_1^{s_i} = g^{s_i r}$;
+\item Each participant computes $g^{sr} = \prod g^{s_i r}$;
+\item Each participant computes $m = C_2 / g^{sr}$.
+\end{enumerate}
+
+\begin{ex}
+  Generalize the protocol above to a $k$-out-of-$n$ threshold protocol
+  where $s$ has been shared using Shamir's secret sharing.
+\end{ex}
+
+\begin{ex}
+  Define the analogous distributed protocol for Schnorr signatures.
+\end{ex}
+
+It is tempting to generalize the protocol above to cryptographic group
+actions: decompose $s\in G$ as $s = s_1 + \cdots s_n$, then have each
+participant broadcast $s_i\star C_1$.  However we face a problem in
+step 2: there is no equivalent of the product $\prod g^{s_i r}$ in the
+group action setting.
+
+Unfortunately, we know no real way around this problem.  What is
+proposed in~\cite{PKC:DeFMey20} is to define a weaker form of
+distributed protocol where the participants act in sequence rather
+than in parallel. Given a ciphertext
+\[C = (C_1, C_2) = (r\star x, H((sr)\star x) \oplus m),\] let
+$x_0=r\star x$.  For each $i$ from $1$ to $n$, participant $i$
+computes $x_i = s_i\star x_{i-1}$ and passes this value to participant
+$i+1$.  The last participant can compute
+$x_n = s_n\star x_{n-1} = (sr)\star x$, and thus recover the plaintext
+$m$.
+
+It is now tempting to give as an exercise to generalize the idea above
+to Shamir's secret sharing, but there is one additional difficulty
+that calls for, at least, a hint.  Being based on polynomial
+interpolation, Shamir's secret sharing requires the shares $s_i$ to be
+elements of a ring.  Here, the $s_i$ only belong to a group.  The
+trick is to go ``in the exponents of the exponents''
+
+Let $(G,X,\star)$ be an EGA and assume that $G=\langle g\rangle$ is
+cyclic of order $N$, then there is a (group) homomorphism
+\[
+  \begin{aligned}
+    \Z/N\Z &\to G,\\
+    a \mapsto g^a.
+  \end{aligned}
+\]
+Hence, we can define an (additive) group action $*$ of $\Z/N\Z$ on $X$
+by
+\[a * x := g^a \star x.\] Almost magically, all the pieces now fit in
+place and we can define threshold decryption using Shamir's secret
+sharing.
+
+\begin{ex}(hard?)
+  Generalize the distributed EGA--ElGamal decryption protocol above to
+  Shamir's secret sharing.
+\end{ex}
+
+Note that for this generalization to work several conditions must be met:
+\begin{itemize}
+\item $(G,X,\star)$ must absolutely be an EGA (exercise: explain why a
+  REGA is not sufficient);
+\item $G$ must be cyclic, or at least contain a large cyclic group,
+  with a known generator $g$;
+\item The order $N$ of $g$ must be known, and the smallest prime
+  divisor of $N$ must be larger than the number $n$ of participants.
+\end{itemize}
+
+Despite all the difficulties involved, the good news is that by
+solving this exercise you become a pirate:
+\url{https://www.youtube.com/watch?v=gjqbgUVZcwI}!  If you're stuck,
+have a look at~\cite{PKC:DeFMey20}.  Further generalizations of
+multi-party protocols based on group actions appeared
+in~\cite{PQCRYPTO:CozSma20,EPRINT:BDPV20}.
+
+
+\section{Other protocols}
+\label{sec:other-protocols}
+
+We're at the \pageref*{sec:other-protocols} pages mark, but we're far
+from having exhausted the protocols based on group actions.
+Explaining all of them would take us too far, so we just list some
+works here for completeness:
+\begin{itemize}
+\item \cite{AC:ADMP20} defines several protocols based on wPR-(R)EGA,
+  including \emph{hash proof systems} and \emph{dual mode encryption}.
+\item \cite{AC:ADMP20} also defines a new, plausible, security
+  assumption for (R)EGA they call \emph{linear hidden shift}, from
+  which they derive a \emph{key-dependent-message-CPA-secure symmetric
+    encryption} scheme.
+\item \cite{cryptoeprint:2020:1593} instantiates \emph{symmetric
+    updatable encryption} from EGA (but not REGA) of known order, and
+  discusses obstacles to instantiating \emph{asymmetric updatable
+    encryption}.
+\item \cite{AC:BeuKatPin20} instantiates \emph{ring signatures} from
+  (R)EGA.
+\item \textbf{Exercise:} help me complete this list with the
+  constructions I'm forgetting.
+\end{itemize}
+
+Despite the remarkable number of different primitives that can be
+instantiated from group actions, several important ones are missing,
+and appear to be difficult to instantiate.  Let me give some examples.
+
+\begin{prob}
+  Instantiate \emph{(simply) homomorphic encryption} from (R)EGA.
+\end{prob}
+
+\begin{prob}
+  Instantiate \emph{collision-resistant hash functions} from (R)EGA
+  (i.e., a hash function where collision resistance reduces to a
+  plausible assumption for (R)EGAs).
+\end{prob}
+
+\begin{prob}
+  Instantiate \emph{identity based} or \emph{attribute based
+    encryption} from (R)EGA.
+\end{prob}
+
 
 \bibliographystyle{plainurl}
 \bibliography{local,export/abbrev3,export/crypto,isogenies_bib/isogenies}
